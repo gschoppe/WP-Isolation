@@ -19,15 +19,20 @@ if( !class_exists('WPIsolation') ) {
 		private $forced_sandbox        = false;
 		private $lock_sandbox          = 0;
 
-		public static function Init( $post_types = '', $taxonomies = '', $sandbox = '' ) {
+		public static function Instance() {
 			static $instance = null;
 			if ($instance === null) {
 				$instance = new self();
 			}
-			if( $post_types ) {
-				$instance->register( $post_types, $taxonomies, $sandbox );
-			}
+
 			return $instance;
+		}
+		public static function Init( $post_types, $taxonomies = '', $sandbox = '' ) {
+			$instance = self::Instance();
+			if( $post_types ) {
+				return $instance->register( $post_types, $taxonomies, $sandbox );
+			}
+			return false;
 		}
 
 		private function __construct() {
@@ -125,6 +130,7 @@ if( !class_exists('WPIsolation') ) {
 			$this->change_sandbox( $sandbox );
 			$this->locked++;
 		}
+		
 		public function end_temp_sandbox() {
 			$this->locked--;
 			if( $this->locked < 0 ) {
