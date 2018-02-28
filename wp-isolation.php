@@ -1,6 +1,6 @@
 <?php if(!defined('ABSPATH')) { die(); } // Include in all php files, to prevent direct execution
 /*
-Plugin Name: WP Isolate Post Types
+Plugin Name: WP Isolation
 Plugin URI: https://www.gschoppe.com
 Description: Isolate specific post types to dedicated db tables
 Version: 0.1.0
@@ -8,7 +8,7 @@ Author: Greg Schoppe
 Author URI: https://www.gschoppe.com
 */
 
-if( !class_exists('WPIsolatePostTypes') ) {
+if( !class_exists('WPIsolation') ) {
 	class WPIsolatePostTypes {
 		private $int_min;
 		private $int_max;
@@ -376,5 +376,5 @@ if( !class_exists('WPIsolatePostTypes') ) {
 		}
 
 	}
-	WPIsolatePostTypes::Init();
+	WPIsolation::Init();
 }
