@@ -17,14 +17,15 @@ if( !class_exists('WPIsolation') ) {
 		private $taxonomies_map        = array();
 		private $current_sandbox       = false;
 		private $forced_sandbox        = false;
+		private $lock_sandbox          = 0;
 
-		public static function Init( $post_types = '', $taxonomies = '' ) {
+		public static function Init( $post_types = '', $taxonomies = '', $sandbox = '' ) {
 			static $instance = null;
 			if ($instance === null) {
 				$instance = new self();
 			}
 			if( $post_types ) {
-				$instance->register( $post_types, $taxonomies );
+				$instance->register( $post_types, $taxonomies, $sandbox );
 			}
 			return $instance;
 		}
@@ -100,26 +101,37 @@ if( !class_exists('WPIsolation') ) {
 
 		}
 
-		public function register( $post_types, $taxonomies = null, $prefix = null ) {
+		public function register( $post_types, $taxonomies = null, $sandbox = null ) {
 			$object = $this->build_isolation_object( $post_types, $taxonomies );
-			if( empty( $prefix ) ) {
-				$prefix = $this->khash( $object );
+			if( empty( $sandbox ) ) {
+				$sandbox = $this->khash( $object );
 			}
-			if( $this->has_overlap( $object ) || isset( $this->isolations[ $prefix ] ) ) {
+			if( $this->has_overlap( $object ) || isset( $this->isolations[ $sandbox ] ) ) {
 				return false; // cant reinitialize same post_type or taxonomy in two sandboxes
 			}
-			$this->isolations[ $prefix ] = $object;
+			$this->isolations[ $sandbox ] = $object;
 			foreach( $object['post_types'] as $post_type ) {
-				$this->post_types_map[$post_type] = $prefix;
+				$this->post_types_map[$post_type] = $sandbox;
 			}
 			foreach( $object['taxonomies'] as $taxonomy ) {
-				$this->taxonomies_map[$taxonomy] = $prefix;
+				$this->taxonomies_map[$taxonomy] = $sandbox;
 			}
-			if( !$this->has_sandbox( $prefix ) ) {
-				$this->build_isolated_sandbox( $prefix );
+			if( !$this->has_sandbox( $sandbox ) ) {
+				$this->build_isolated_sandbox( $sandbox );
 			}
 		}
 
+		public function start_temp_sandbox( $sandbox = '' ) {
+			$this->change_sandbox( $sandbox );
+			$this->locked++;
+		}
+		public function end_temp_sandbox() {
+			$this->locked--;
+			if( $this->locked < 0 ) {
+				$this->locked = 0;
+			}
+			$this->change_sandbox( $this->current_sandbox );
+		}
 
 		// HOOKS
 		public function pre_get_posts( $query ) {
@@ -239,7 +251,12 @@ if( !class_exists('WPIsolation') ) {
 				'name' => ''
 			), $atts );
 			$this->change_sandbox( $atts['name'] );
+			$this->locked++;
 			$output = do_shortcode( $content );
+			$this->locked--;
+			if( $this->locked < 0 ) {
+				$this->locked = 0;
+			}
 			$this->change_sandbox( $this->current_sandbox );
 		}
 
@@ -253,6 +270,9 @@ if( !class_exists('WPIsolation') ) {
 		}
 
 		public function set_sandbox( $sandbox, $force = false ) {
+			if( $this->locked > 0 ){
+				return;
+			}
 			if( $force || !$this->forced_sandbox ) {
 				$this->current_sandbox = $sandbox;
 				$this->change_sandbox( $sandbox );
@@ -264,6 +284,9 @@ if( !class_exists('WPIsolation') ) {
 
 		public function reset_sandbox( $force = false ) {
 			global $wpdb;
+			if( $this->locked > 0 ){
+				return;
+			}
 			if( $this->backup_prefix && ( $force || !$this->forced_sandbox ) ) {
 				$this->change_sandbox( "" );
 				$this->current_sandbox = false;
@@ -326,21 +349,21 @@ if( !class_exists('WPIsolation') ) {
 			return false;
 		}
 
-		private function has_sandbox( $prefix ) {
+		private function has_sandbox( $sandbox ) {
 			// TODO: Improve this to remove the check on every page load
 			//       and to use portable ORM SQL commands, rather than
 			//       MySQL/MariaDB Proprietary commands.
 			global $wpdb;
-			$test_table = $wpdb->base_prefix . $prefix . '_posts';
+			$test_table = $wpdb->base_prefix . $sandbox . '_posts';
 			$query = 'SHOW TABLES LIKE "' . $test_table . '";';
 			$result = $wpdb->get_results( $query );
 			return !empty( $result );
 		}
 
-		private function build_isolated_sandbox( $prefix ) {
+		private function build_isolated_sandbox( $sandbox ) {
 			global $wpdb;
-			$old_prefix = $wpdb->set_prefix( $prefix, true );
-			$prefix_len = strlen( "CREATE TABLE " . $wpdb->prefix . '_' );
+			$old_prefix = $wpdb->set_prefix( $sandbox, true );
+			$sandbox_len = strlen( "CREATE TABLE " . $wpdb->prefix . '_' );
 			$blacklist = array(
 				'links',
 				'options'
@@ -351,7 +374,7 @@ if( !class_exists('WPIsolation') ) {
 			$sql_commands = array();
 			foreach( $raw_blog_tables as $table ) {
 				foreach( $blacklist as $banned_table ) {
-					$table_test = substr( $table, $prefix_len, strlen( $banned_table ) );
+					$table_test = substr( $table, $sandbox_len, strlen( $banned_table ) );
 					if( $table_test == $banned_table ) {
 						continue 2;
 					}
@@ -364,6 +387,9 @@ if( !class_exists('WPIsolation') ) {
 
 		private function change_sandbox( $sandbox ) {
 			global $wpdb;
+			if( $this->locked > 0 ) {
+				return;
+			}
 			$old_prefix = $wpdb->base_prefix;
 			$wpdb->base_prefix = $wpdb->base_prefix . $sandbox . '_';
 			$tables = $wpdb->tables( 'blog' );
